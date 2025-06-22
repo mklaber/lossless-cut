@@ -25,6 +25,7 @@ import useFileFormatState from './hooks/useFileFormatState';
 import useFrameCapture from './hooks/useFrameCapture';
 import useSegments from './hooks/useSegments';
 import useDirectoryAccess from './hooks/useDirectoryAccess';
+import { useCrop } from './hooks/useCrop';
 
 import { UserSettingsContext, SegColorsContext, UserSettingsContextType } from './contexts';
 
@@ -47,6 +48,8 @@ import ConcatDialog from './components/ConcatDialog';
 import KeyboardShortcuts from './components/KeyboardShortcuts';
 import Working from './components/Working';
 import OutputFormatSelect from './components/OutputFormatSelect';
+import { CropOverlay } from './components/CropOverlay';
+import { CropButton } from './components/CropButton';
 
 import { loadMifiLink, runStartupCheck } from './mifi';
 import { darkModeTransition } from './colors';
@@ -186,6 +189,7 @@ function App() {
   const { videoRef, videoContainerRef, playbackRate, setPlaybackRate, outputPlaybackRate, setOutputPlaybackRate, commandedTime, seekAbs, playingRef, getRelevantTime, setPlaying, onSeeked, relevantTime, onStartPlaying, setCommandedTime, setCompatPlayerEventId, compatPlayerEventId, setOutputPlaybackRateState, commandedTimeRef, onStopPlaying, onVideoAbort, playerTime, setPlayerTime, playbackModeRef, playing, play, pause, seekRel } = useVideo({ filePath });
   const { timecodePlaceholder, formatTimecode, formatTimeAndFrames, parseTimecode, getFrameCount } = useTimecode({ detectedFps, timecodeFormat });
   const { loadSubtitle, subtitlesByStreamId, setSubtitlesByStreamId } = useSubtitles();
+  const { cropState, containerRef: cropContainerRef, startCrop, stopCrop, clearCrop, getCropFilter, handleMouseDown, handleMouseMove, handleMouseUp, setHovering } = useCrop();
 
   const fileDurationNonZero = isDurationValid(fileDuration) ? fileDuration : 1;
   const zoom = Math.floor(zoomUnrounded);
@@ -314,6 +318,12 @@ function App() {
   // 360 means we don't modify rotation gtrgt
   const isRotationSet = rotation !== 360;
   const effectiveRotation = useMemo(() => (isRotationSet ? rotation : (activeVideoStream?.tags?.rotate ? parseInt(activeVideoStream.tags.rotate, 10) : undefined)), [isRotationSet, activeVideoStream, rotation]);
+
+  // Get crop filter for ffmpeg operations
+  const cropFilter = useMemo(() => {
+    if (!cropState.currentRect || !activeVideoStream) return null;
+    return getCropFilter(cropState.currentRect, activeVideoStream);
+  }, [cropState.currentRect, activeVideoStream, getCropFilter]);
 
   const zoomAbs = useCallback((fn: (v: number) => number) => setZoom((z) => Math.min(Math.max(fn(z), 1), zoomMax)), []);
   const zoomRel = useCallback((rel: number) => zoomAbs((z) => z + (rel * (1 + (z / 10)))), [zoomAbs]);
@@ -632,7 +642,8 @@ function App() {
     setExportConfirmVisible(false);
     setOutputPlaybackRateState(1);
     setCurrentFileExportCount(0);
-  }, [videoRef, setCommandedTime, setPlaybackRate, setPlaying, playingRef, playbackModeRef, setCompatPlayerEventId, setFileDuration, cutSegmentsHistory, setFileFormat, setDetectedFileFormat, setCopyStreamIdsByFile, setThumbnails, setSubtitlesByStreamId, setOutputPlaybackRateState]);
+    clearCrop();
+  }, [videoRef, setCommandedTime, setPlaybackRate, setPlaying, playingRef, playbackModeRef, setCompatPlayerEventId, setFileDuration, cutSegmentsHistory, setFileFormat, setDetectedFileFormat, setCopyStreamIdsByFile, setThumbnails, setSubtitlesByStreamId, setOutputPlaybackRateState, clearCrop]);
 
 
   const showUnsupportedFileMessage = useCallback(() => {
@@ -1112,6 +1123,7 @@ function App() {
         paramsByStreamId,
         chapters: chaptersToAdd,
         detectedFps,
+        cropFilter,
       });
 
       let mergedOutFilePath: string | undefined;
@@ -1218,7 +1230,7 @@ function App() {
       setWorking(undefined);
       setProgress(undefined);
     }
-  }, [filePath, numStreamsToCopy, haveInvalidSegs, workingRef, setWorking, segmentsToChaptersOnly, outSegTemplateOrDefault, generateOutSegFileNames, cutMultiple, outputDir, customOutDir, fileFormat, fileDuration, isRotationSet, effectiveRotation, copyFileStreams, allFilesMeta, keyframeCut, segmentsToExport, shortestFlag, ffmpegExperimental, preserveMetadata, preserveMetadataOnMerge, preserveMovData, preserveChapters, movFastStart, avoidNegativeTs, customTagsByFile, paramsByStreamId, detectedFps, willMerge, enableOverwriteOutput, exportConfirmEnabled, mainFileFormatData, mainStreams, exportExtraStreams, areWeCutting, hideAllNotifications, cleanupChoices.cleanupAfterExport, cleanupFilesWithDialog, segmentsOrInverse.selected, t, mergedFileTemplateOrDefault, segmentsToChapters, invertCutSegments, generateMergedFileNames, concatCutSegments, autoDeleteMergedSegments, tryDeleteFiles, nonCopiedExtraStreams, extractStreams, showOsNotification, handleExportFailed]);
+  }, [filePath, numStreamsToCopy, haveInvalidSegs, workingRef, setWorking, segmentsToChaptersOnly, outSegTemplateOrDefault, generateOutSegFileNames, cutMultiple, outputDir, customOutDir, fileFormat, fileDuration, isRotationSet, effectiveRotation, copyFileStreams, allFilesMeta, keyframeCut, segmentsToExport, shortestFlag, ffmpegExperimental, preserveMetadata, preserveMetadataOnMerge, preserveMovData, preserveChapters, movFastStart, avoidNegativeTs, customTagsByFile, paramsByStreamId, detectedFps, willMerge, enableOverwriteOutput, exportConfirmEnabled, mainFileFormatData, mainStreams, exportExtraStreams, areWeCutting, hideAllNotifications, cleanupChoices.cleanupAfterExport, cleanupFilesWithDialog, segmentsOrInverse.selected, t, mergedFileTemplateOrDefault, segmentsToChapters, invertCutSegments, generateMergedFileNames, concatCutSegments, autoDeleteMergedSegments, tryDeleteFiles, nonCopiedExtraStreams, extractStreams, showOsNotification, handleExportFailed, cropFilter]);
 
   const onExportPress = useCallback(async () => {
     if (!filePath) return;
@@ -2535,7 +2547,7 @@ function App() {
                 <div style={{ position: 'relative', flexGrow: 1, overflow: 'hidden' }} ref={videoContainerRef}>
                   {!isFileOpened && <NoFileLoaded mifiLink={mifiLink} currentCutSeg={currentCutSeg} onClick={openFilesDialog} darkMode={darkMode} keyBindingByAction={keyBindingByAction} />}
 
-                  <div className="no-user-select" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, visibility: !isFileOpened || !hasVideo || bigWaveformEnabled ? 'hidden' : undefined }} onWheel={onTimelineWheel}>
+                  <div className="no-user-select" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, visibility: !isFileOpened || !hasVideo || bigWaveformEnabled ? 'hidden' : undefined }} onWheel={onTimelineWheel} ref={cropContainerRef}>
                     {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                     <video
                       className={styles['video']}
@@ -2559,6 +2571,19 @@ function App() {
                     </video>
 
                     {filePath != null && compatPlayerEnabled && <MediaSourcePlayer rotate={effectiveRotation} filePath={filePath} videoStream={activeVideoStream} audioStreams={activeAudioStreams} playerTime={playerTime ?? 0} commandedTime={commandedTime} playing={playing} eventId={compatPlayerEventId} masterVideoRef={videoRef} mediaSourceQuality={mediaSourceQuality} playbackVolume={playbackVolume} />}
+                    
+                    <CropOverlay
+                      cropRect={cropState.currentRect}
+                      isActive={cropState.isActive}
+                      isDragging={cropState.isDragging}
+                      isHovering={cropState.isHovering}
+                      exportConfirmVisible={exportConfirmVisible}
+                      onMouseDown={handleMouseDown}
+                      onMouseMove={handleMouseMove}
+                      onMouseUp={handleMouseUp}
+                    />
+
+                    {/* CropButton moved to controls area below */}
                   </div>
 
                   {bigWaveformEnabled && <BigWaveform waveforms={waveforms} relevantTime={relevantTime} playing={playing} fileDurationNonZero={fileDurationNonZero} zoom={zoomUnrounded} seekRel={seekRel} darkMode={darkMode} />}
@@ -2583,7 +2608,21 @@ function App() {
                   )}
 
                   {isFileOpened && (
-                    <div className="no-user-select" style={{ position: 'absolute', right: 0, bottom: 0, marginBottom: 10, display: 'flex', alignItems: 'flex-end' }}>
+                    <div className="no-user-select" style={{ position: 'absolute', right: 0, bottom: 0, marginBottom: 10, display: 'flex', alignItems: 'flex-end', zIndex: 1001 }}>
+                      <CropButton
+                        isActive={cropState.isActive}
+                        hasCrop={!!cropState.currentRect}
+                        onClick={() => {
+                          if (cropState.isActive) {
+                            stopCrop();
+                          } else {
+                            startCrop();
+                          }
+                        }}
+                        onClear={clearCrop}
+                        onHover={setHovering}
+                      />
+                      
                       <VolumeControl playbackVolume={playbackVolume} setPlaybackVolume={setPlaybackVolume} onToggleMutedClick={toggleMuted} />
 
                       {shouldShowPlaybackStreamSelector && (

@@ -40,6 +40,24 @@ const parametersRaw = {
       hint: () => i18n.t('Minimum change between two frames to be considered a new scene. A value between 0.3 and 0.5 is generally a sane choice.'),
     },
   },
+  crop: {
+    width: {
+      value: '1920',
+      hint: () => i18n.t('Width of the cropped area in pixels.'),
+    },
+    height: {
+      value: '1080',
+      hint: () => i18n.t('Height of the cropped area in pixels.'),
+    },
+    x: {
+      value: '0',
+      hint: () => i18n.t('X coordinate of the top-left corner of the crop area.'),
+    },
+    y: {
+      value: '0',
+      hint: () => i18n.t('Y coordinate of the top-left corner of the crop area.'),
+    },
+  },
 };
 
 export type FfmpegDialog = keyof typeof parametersRaw;
