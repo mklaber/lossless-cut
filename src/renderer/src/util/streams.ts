@@ -173,6 +173,8 @@ function getPerStreamFlags({ stream, outputIndex, outFormat, manuallyCopyDisposi
       // If crop filter is applied, we need to re-encode instead of copy
       // Use the same codec as input for minimal quality loss
       addCodecArgs(stream.codec_name);
+      // Add the crop filter
+      addArgs(`-vf:${outputIndex}`, cropFilter);
     } else {
       addCodecArgs('copy');
     }
@@ -209,7 +211,7 @@ export function getMapStreamsArgs({ startIndex = 0, outFormat, allFilesMeta, cop
   manuallyCopyDisposition?: boolean,
   getVideoArgs?: GetVideoArgsFn,
   areWeCutting?: boolean,
-  cropFilter?: string | null,
+  cropFilter?: string | null | undefined,
 }) {
   let args: string[] = [];
   let outputIndex = startIndex;
@@ -220,13 +222,7 @@ export function getMapStreamsArgs({ startIndex = 0, outFormat, allFilesMeta, cop
       const stream = streams.find((s) => s.index === streamId);
       invariant(stream != null);
       
-      // Apply crop filter to video streams if provided
-      let streamArgs = getPerStreamFlags({ stream, outputIndex, outFormat, manuallyCopyDisposition, getVideoArgs, areWeCutting, cropFilter });
-      
-      if (cropFilter && stream.codec_type === 'video') {
-        // Add crop filter to video stream
-        streamArgs = [...streamArgs, `-vf:${outputIndex}`, cropFilter];
-      }
+      const streamArgs = getPerStreamFlags({ stream, outputIndex, outFormat, manuallyCopyDisposition, getVideoArgs, areWeCutting, cropFilter });
       
       args = [
         ...args,
